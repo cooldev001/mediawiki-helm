@@ -1,0 +1,126 @@
+{{- if and (include "mediawiki.host" .) (.Values.externalDatabase.host) -}}
+apiVersion: {{ include "mediawiki.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ template "mediawiki.names.fullname" . }}
+  labels:
+    {{- include "labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels: {{ include "labels.matchLabels" . | nindent 6 }}
+  strategy: {{- include "tplvalues.render" (dict "value" .Values.updateStrategy "context" $ ) | nindent 4 }}
+  template:
+    metadata:
+      labels:
+      {{- include "labels.standard" . | nindent 4 }}
+      {{- if .Values.commonLabels }}
+      {{- include "tplvalues.render" ( dict "value" .Values.commonLabels "context" $ ) | nindent 4 }}
+      {{- end }}
+      {{- if .Values.commonAnnotations }}
+      annotations: {{- include "tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+      {{- end }}
+    spec:
+      {{- with .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      hostAliases:
+        - ip: "127.0.0.1"
+          hostnames:
+            - "status.localhost"
+      {{- if .Values.affinity }}
+      affinity: {{- include "tplvalues.render" ( dict "value" .Values.affinity "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "tplvalues.render" ( dict "value" .Values.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "tplvalues.render" (dict "value" .Values.tolerations "context" .) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: {{ template "mediawiki.names.fullname" . }}
+        image: {{ .Values.mediawikiImage | quote }}
+        imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+        {{- if .Values.containerSecurityContext.enabled }}
+        securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 12 }}
+        {{- end }}
+        {{- if .Values.command }}
+        command: {{- include "tplvalues.render" (dict "value" .Values.command "context" $) | nindent 12 }}
+        {{- end }}
+        {{- if .Values.args }}
+        args: {{- include "tplvalues.render" (dict "value" .Values.args "context" $) | nindent 12 }}
+        {{- end }}
+        env:
+          - name: ALLOW_EMPTY_PASSWORD
+            value: {{ .Values.allowEmptyPassword | quote }}
+          - name: MEDIAWIKI_DATABASE_NAME
+            value: {{ include "mediawiki.databaseName" . | quote }}
+          - name: MEDIAWIKI_DATABASE_USER
+            value: {{ include "mediawiki.databaseUser" . | quote }}
+          {{- $port:=.Values.service.port | toString }}
+          - name: MEDIAWIKI_HOST
+            value: "{{ include "mediawiki.host" . }}{{- if ne $port "80" }}:{{ .Values.service.port }}{{ end }}"
+          - name: MEDIAWIKI_USERNAME
+            value: {{ .Values.mediawikiUser | quote }}
+          - name: MEDIAWIKI_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ include "mediawiki.databaseSecretName" . }}
+                key: db-password
+          - name: MEDIAWIKI_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ template "mediawiki.names.fullname" . }}
+                key: mediawiki-password
+          - name: MEDIAWIKI_EMAIL
+            value: {{ .Values.mediawikiEmail | quote }}
+          - name: MEDIAWIKI_WIKI_NAME
+            value: {{ .Values.mediawikiName | quote }}
+          {{- if .Values.extraEnvVars }}
+          {{- include "tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
+          {{- end }}
+        {{- if or .Values.extraEnvVarsCM .Values.extraEnvVarsSecret }}
+        envFrom:
+          {{- if .Values.extraEnvVarsCM }}
+          - configMapRef:
+              name: {{ include "tplvalues.render" (dict "value" .Values.extraEnvVarsCM "context" $) }}
+          {{- end }}
+          {{- if .Values.extraEnvVarsSecret }}
+          - secretRef:
+              name: {{ include "tplvalues.render" (dict "value" .Values.extraEnvVarsSecret "context" $) }}
+          {{- end }}
+        {{- end }}
+        ports:
+          - name: http
+            containerPort: 8080
+        {{- if .Values.resources }}
+        resources: {{- toYaml .Values.resources | nindent 12 }}
+        {{- end }}
+        volumeMounts:
+          - mountPath: /bitnami/mediawiki
+            name: mediawiki-data
+            subPath: mediawiki
+          {{- if .Values.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
+          {{- end }}
+      volumes:
+      - name: mediawiki-data
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{- else }}{{ template "mediawiki.names.fullname" . }}-mediawiki{{- end }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- if .Values.extraVolumes }}
+      {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
+      {{- end }}
+{{- end }}

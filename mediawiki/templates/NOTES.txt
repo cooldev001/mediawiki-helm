@@ -1,0 +1,69 @@
+{{- if .Values.externalDatabase.host -}}
+
+{{- if empty (include "mediawiki.host" .) -}}
+###############################################################################
+### ERROR: You did not provide an external host in your 'helm install' call ###
+###############################################################################
+
+This deployment will be incomplete until you configure Mediawiki with a resolvable
+host. To configure Mediawiki with the URL of your service:
+
+1. Get the Mediawiki URL by running:
+
+  {{- if contains "LoadBalancer" .Values.service.type }}
+
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        Watch the status with: 'kubectl get svc --namespace {{ .Release.Namespace }} -w {{ template "mediawiki.names.fullname" . }}'
+
+  export APP_HOST=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ template "mediawiki.names.fullname" . }} --template "{{ "{{ range (index .status.loadBalancer.ingress 0) }}{{ . }}{{ end }}" }}")
+  export APP_PASSWORD=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ template "mediawiki.names.fullname" . }} -o jsonpath="{.data.mediawiki-password}" | base64 --decode)
+
+2. Complete your Mediawiki deployment by running:
+
+  ## PLEASE UPDATE THE EXTERNAL DATABASE CONNECTION PARAMETERS IN THE FOLLOWING COMMAND AS NEEDED ##
+
+  helm upgrade {{ .Release.Name }} bitnami/{{ .Chart.Name }} \
+    --set mediawikiPassword=$APP_PASSWORD,mediawikiHost=$APP_HOST,service.type={{ .Values.service.type }}{{- if not (empty .Values.externalDatabase.host) }},externalDatabase.host={{ .Values.externalDatabase.host }}{{- end }}{{- if not (empty .Values.externalDatabase.user) }},externalDatabase.user={{ .Values.externalDatabase.user }}{{- end }}{{- if not (empty .Values.externalDatabase.password) }},externalDatabase.password={{ .Values.externalDatabase.password }}{{- end }}{{- if not (empty .Values.externalDatabase.database) }},externalDatabase.database={{ .Values.externalDatabase.database }}{{- end }}{{- if .Values.global }}{{- if .Values.global.imagePullSecrets }},global.imagePullSecrets={{ .Values.global.imagePullSecrets }}{{- end }}{{- end }}
+
+1. Get the MediaWiki URL by running:
+
+{{- if contains "LoadBalancer" .Values.service.type }}
+
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        Watch the status with: 'kubectl get svc --namespace {{ .Release.Namespace }} -w {{ template "mediawiki.names.fullname" . }}'
+
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ template "mediawiki.names.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+
+{{- $port:=.Values.service.port | toString }}
+  echo "Mediawiki URL: http://$SERVICE_IP{{- if ne $port "80" }}:{{ .Values.service.port }}{{ end }}/"
+
+{{- end }}
+{{- end }}
+{{- end }}
+
+2. Get your MediaWiki login credentials by running:
+
+    echo Username: {{ .Values.mediawikiUser }}
+    echo Password: $(kubectl get secret --namespace {{ .Release.Namespace }} {{ template "mediawiki.names.fullname" . }} -o jsonpath="{.data.mediawiki-password}" | base64 --decode)
+
+{{- else -}}
+
+########################################################################################
+### ERROR: You did not provide an external database host in your 'helm install' call ###
+########################################################################################
+
+This deployment will be incomplete until you configure MediaWiki with a resolvable database
+host. To configure MediaWiki to use and external database host:
+
+1. Complete your MediaWiki deployment by running:
+
+  helm upgrade {{ .Release.Name }} --set service.type={{ .Values.service.type }},externalDatabase.host=YOUR_EXTERNAL_DATABASE_HOST bitnami/mediawiki
+
+{{- end}}
+
+{{- $passwordValidationErrors := list -}}
+{{- $secretName := include "mediawiki.names.fullname" . -}}
+{{- $requiredMediawikiPassword := dict "valueKey" "mediawikiPassword" "secret" $secretName "field" "mediawiki-password" "context" $ -}}
+{{- $requiredMediawikiPasswordError := include "validations.values.single.empty" $requiredMediawikiPassword -}}
+{{- $passwordValidationErrors = append $passwordValidationErrors $requiredMediawikiPasswordError -}}
+{{- include "errors.upgrade.passwords.empty" (dict "validationErrors" $passwordValidationErrors "context" $) -}}
